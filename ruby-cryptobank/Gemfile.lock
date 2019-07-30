@@ -12,6 +12,7 @@ GEM
     concurrent-ruby (1.1.5)
     i18n (1.6.0)
       concurrent-ruby (~> 1.0)
+    jwt (2.2.1)
     minitest (5.11.3)
     mongo (2.9.0)
       bson (>= 4.4.2, < 5.0.0)
@@ -36,6 +37,7 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
+  jwt (~> 2.2)
   mongoid (~> 7.0)
   sinatra (~> 2.0)
 
