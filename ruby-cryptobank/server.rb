@@ -25,16 +25,27 @@ class JwtAuth
 
     @app.call env
   rescue JWT::DecodeError
-    [401, { 'Content-Type' => 'text/plain' }, ['A token must be passed.']]
+    [401, { 'Content-Type' => 'application/json' }, [{ msg: 'Missing token!' }.to_json]]
   rescue JWT::ExpiredSignature
-    [403, { 'Content-Type' => 'text/plain' }, ['The token has expired.']]
+    [403, { 'Content-Type' => 'application/json' }, [{ msg: 'Token expired!' }.to_json]]
   rescue JWT::InvalidIatError
-    [403, { 'Content-Type' => 'text/plain' }, ['The token does not have a valid "issued at" time.']]
+    [403, { 'Content-Type' => 'application/json' }, [{ msg: 'Invalid token!' }.to_json]]
   end
 end
 
 # Public route
 class Public < Sinatra::Base
+
+  before do 
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = '*'
+  end
+
+  options '*' do
+    halt 200
+  end
+
   post '/create_account' do
     content_type :json
 
@@ -46,7 +57,7 @@ class Public < Sinatra::Base
       { msg: 'Conta criada com sucesso!' }.to_json
     else
       halt 400, { 'Content-Type' => 'application/json' },
-           { msg: 'Email já cadastrado!' }.to_json
+           { msg: 'Email already in use!' }.to_json
     end
   end
 
@@ -61,7 +72,7 @@ class Public < Sinatra::Base
       { token: token(email) }.to_json
     else
       halt 401, { 'Content-Type' => 'application/json' },
-           { msg: 'Email ou senha incorretos!' }.to_json
+           { msg: 'Wrong email or password!' }.to_json
     end
   end
 
@@ -71,7 +82,7 @@ class Public < Sinatra::Base
 
   def payload(email)
     {
-      exp: Time.now.to_i + 60 * 60,
+      exp: Time.now.to_i + 7 * 3600,
       iat: Time.now.to_i,
       user: {
         email: email
@@ -84,7 +95,23 @@ end
 class Api < Sinatra::Base
   use JwtAuth
 
-  get '/money' do
+  def check_amount(amount)
+    if amount >= 10.0 && amount <= 15_000.0
+      true
+    else
+      false
+    end
+  end
+
+  options '*' do
+    halt 200
+  end
+
+  post '/auth' do
+    halt 200, { 'Content-Type' => 'application/json' }, { status: 'authed' }.to_json
+  end
+
+  get '/money/get' do
     user = request.env[:user]
     email = user['email'].to_sym
 
@@ -99,73 +126,89 @@ class Api < Sinatra::Base
   put '/money/add/:amount' do
     user = request.env[:user]
     email = user['email'].to_sym
+    if check_amount(params['amount'].to_f)
+      if !Account.find_by(email: email).nil?
+        content_type :json
+        account = Account.find_by(email: email)
+        money = account.money
 
-    unless params['amount']
-      halt 400, { 'Content-Type' => 'application/json' },
-           { msg: 'Informe o valor!' }.to_json
-    end
-
-    if !Account.find_by(email: email).nil?
-      content_type :json
-      account = Account.find_by(email: email)
-      money = account.money
-
-      account.update_attribute(:money, money + params['amount'].to_f)
-      { money: account.money }.to_json
+        account.update_attribute(:money, money + params['amount'].to_f)
+        { money: account.money }.to_json
+      else
+        halt 403
+      end
     else
-      halt 403
+      halt 400, { 'Content-Type' => 'application/json' },
+           { msg: 'The value must be between $KA 10,00 and $KA 15.000,00!' }.to_json
     end
   end
 
   put '/money/remove/:amount' do
     user = request.env[:user]
     email = user['email'].to_sym
+    if check_amount(params['amount'].to_f)
+      if !Account.find_by(email: email).nil?
+        content_type :json
+        account = Account.find_by(email: email)
+        money = account.money
 
-    unless params['amount']
-      halt 400, { 'Content-Type' => 'application/json' },
-           { msg: 'Informe o valor!' }.to_json
-    end
+        if money < params['amount'].to_f
+          halt 400, { 'Content-Type' => 'application/json' },
+               { msg: 'Not enough money!' }.to_json
+        end
 
-    if !Account.find_by(email: email).nil?
-      content_type :json
-      account = Account.find_by(email: email)
-      money = account.money
-
-      account.update_attribute(:money, money - params['amount'].to_f)
-      { money: account.money }.to_json
+        account.update_attribute(:money, money - params['amount'].to_f)
+        { money: account.money }.to_json
+      else
+        halt 403
+      end
     else
-      halt 403
+      halt 400, { 'Content-Type' => 'application/json' },
+           { msg: 'The value must be between $KA 10,00 and $KA 15.000,00!' }.to_json
     end
   end
 
   put '/money/transfer/:email/:amount' do
     user = request.env[:user]
     email = user['email'].to_sym
+    if check_amount(params['amount'].to_f)
+      if !Account.find_by(email: email).nil?
+        content_type :json
 
-    if !params['email'] || !params['amount']
-      halt 400, { 'Content-Type' => 'application/json' },
-           { msg: 'Informe a conta e o valor!' }.to_json
-    end
+        Account.with_session do |session|
+          account_to = Account.find_by(email: params['email'])
 
-    if !Account.find_by(email: email).nil?
-      content_type :json
+          if !account_to.nil?
+            account_from = Account.find_by(email: email)
+            if account_from.money < params['amount'].to_f
+              halt 400, { 'Content-Type' => 'application/json' },
+                   { msg: 'Not enough money!' }.to_json
+            end
+            money_from = account_from.money
+            money_to = account_to.money
 
-      account_to = Account.find_by(email: params['email'])
+            session.start_transaction
+            account_from.update_attribute(:money, money_from - params['amount'].to_f)
+            account_to.update_attribute(:money, money_to + params['amount'].to_f)
+            session.commit_transaction
 
-      if !account_to.nil?
-        account_from = Account.find_by(email: email)
-        money_from = account_from.money
-        money_to = account_to.money
-
-        account_from.update_attribute(:money, money_from - params['amount'].to_f)
-        account_to.update_attribute(:money, money_to + params['amount'].to_f)
-        { money_from: account_from.money,
-          money_to: account_to.money }.to_json
+            { money_from: account_from.money,
+              money_to: account_to.money }.to_json
+          else
+            halt 400, { 'Content-Type' => 'application/json' },
+                 { msg: 'The value must be transfered to an existing account!' }.to_json
+          end
+        end
       else
-        halt 400
+        halt 403
       end
     else
-      halt 403
+      halt 400, { 'Content-Type' => 'application/json' },
+           { msg: 'The value must be between $KA 10,00 and $KA 15.000,00!' }.to_json
     end
+  end
+
+  get '/accounts' do
+    Account.all.to_json
   end
 end
