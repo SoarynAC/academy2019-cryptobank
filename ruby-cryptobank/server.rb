@@ -18,6 +18,13 @@ class JwtAuth
   end
 
   def call(env)
+    if env.fetch('REQUEST_METHOD', '') == 'OPTIONS'
+      return [200, { 'Content-Type' => 'application/json',
+                     'Access-Control-Allow-Origin' => '*',
+                     'Access-Control-Allow-Methods' => '*',
+                     'Access-Control-Allow-Headers' => '*' }, [{}.to_json]]
+    end
+
     bearer = env.fetch('HTTP_AUTHORIZATION', '').slice(7..-1)
     payload, _header = JWT.decode bearer, 'pr0b4bly_4_53cur3_h45h_k3y', true, algorithm: 'HS256'
 
@@ -25,11 +32,20 @@ class JwtAuth
 
     @app.call env
   rescue JWT::DecodeError
-    [401, { 'Content-Type' => 'application/json' }, [{ msg: 'Missing token!' }.to_json]]
+    [401, { 'Content-Type' => 'application/json',
+            'Access-Control-Allow-Origin' => '*',
+            'Access-Control-Allow-Methods' => '*',
+            'Access-Control-Allow-Headers' => '*' }, [{ msg: 'Missing token!' }.to_json]]
   rescue JWT::ExpiredSignature
-    [403, { 'Content-Type' => 'application/json' }, [{ msg: 'Token expired!' }.to_json]]
+    [403, { 'Content-Type' => 'application/json',
+            'Access-Control-Allow-Origin' => '*',
+            'Access-Control-Allow-Methods' => '*',
+            'Access-Control-Allow-Headers' => '*' }, [{ msg: 'Token expired!' }.to_json]]
   rescue JWT::InvalidIatError
-    [403, { 'Content-Type' => 'application/json' }, [{ msg: 'Invalid token!' }.to_json]]
+    [403, { 'Content-Type' => 'application/json',
+            'Access-Control-Allow-Origin' => '*',
+            'Access-Control-Allow-Methods' => '*',
+            'Access-Control-Allow-Headers' => '*' }, [{ msg: 'Invalid token!' }.to_json]]
   end
 end
 
@@ -93,7 +109,18 @@ end
 
 # Private route
 class Api < Sinatra::Base
+
+  before do 
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = '*'
+  end
+
   use JwtAuth
+
+  options '*' do
+    halt 200
+  end
 
   def check_amount(amount)
     if amount >= 10.0 && amount <= 15_000.0
@@ -101,10 +128,6 @@ class Api < Sinatra::Base
     else
       false
     end
-  end
-
-  options '*' do
-    halt 200
   end
 
   post '/auth' do
