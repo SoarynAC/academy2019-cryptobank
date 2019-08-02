@@ -1,9 +1,7 @@
 development:
   clients:
     default:
-      database: sarakin
-      hosts: 
-        - 127.0.0.1:27017
+      uri: mongodb+srv://admin:admin@cluster0-us5oh.mongodb.net/test?retryWrites=true&w=majority
 
 production:
   clients:
