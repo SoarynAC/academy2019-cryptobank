@@ -51,8 +51,7 @@ end
 
 # Public route
 class Public < Sinatra::Base
-
-  before do 
+  before do
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = '*'
     response.headers['Access-Control-Allow-Headers'] = '*'
@@ -109,8 +108,7 @@ end
 
 # Private route
 class Api < Sinatra::Base
-
-  before do 
+  before do
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = '*'
     response.headers['Access-Control-Allow-Headers'] = '*'
@@ -232,6 +230,14 @@ class Api < Sinatra::Base
   end
 
   get '/accounts' do
-    Account.all.to_json
+    user = request.env[:user]
+    email = user['email'].to_sym
+
+    user = Account.find_by(email: email)
+
+    accounts = Account.all
+    accounts -= [user]
+
+    accounts.to_json
   end
 end
